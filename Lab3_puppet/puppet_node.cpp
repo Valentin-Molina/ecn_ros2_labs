@@ -68,7 +68,8 @@ private:
         // build service request SolvePositionIK::Request from obtained transform
         
         // call service and get response
-      auto response = ik_node.sendRequest(req);
+      /*    Problem here when tring to compile Lab1
+       * auto response = ik_node.sendRequest(req); */
 
       // copy response data to joint command and publish
     }
