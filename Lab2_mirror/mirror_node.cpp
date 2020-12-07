@@ -8,6 +8,9 @@
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <algorithm>
 
+#include <functional>
+#include <iostream>
+
 // access time units such as 100ms
 using namespace std::chrono_literals;
 
@@ -31,23 +34,74 @@ class MirrorNode : public rclcpp::Node
 public:
   MirrorNode(rclcpp::NodeOptions options) : Node("mirror", options)
   {
-    // init whatever is needed for your node
-    // these suffixes may be useful
-    const std::vector<std::string> suffixes = {"_s0", "_s1", "_e0", "_e1", "_w0", "_w1", "_w2"};
-
     // init subscriber
+    subscription_ = this->create_subscription<JointState>("robot/joint_states", 10, std::bind(&MirrorNode::subscription_callback, this, std::placeholders::_1));
 
     // init publisher
+    publisher_ = this->create_publisher<JointCommand>("/robot/limb/left/joint_command", 10);
 
     // init timer - the passed function will be called with the given rate
-    
+    timer_ = this->create_wall_timer(100ms, [this](){this->timer_callback();});
   }
   
 private:
+    // these suffixes may be useful
+    const std::vector<std::string> suffixes = {"_s0", "_s1", "_e0", "_e1", "_w0", "_w1", "_w2"};
+    std::vector<double> left_position = {0., 0., 0., 0., 0., 0., 0.};
+    //JointState last_msg ;
 
-  // declare any subscriber / publisher / timer
-  
-  
+
+    void subscription_callback(const JointState::UniquePtr msg)
+    {
+        std::vector<std::string> right(7);
+        std::transform(std::begin(suffixes), std::end(suffixes), std::begin(right), [](std::string suffixe){return "right"+suffixe;});
+
+        int nb_joints = size(msg->name);
+        for(auto i(0); i < nb_joints ; i ++)
+        {
+            for(auto & suffixe : MirrorNode::suffixes)
+            {
+                if(msg->name[i] == "right"+suffixe)
+                {
+                    auto index = std::find(std::begin(suffixes), std::end(suffixes), suffixe);
+                    left_position[index-std::begin(suffixes)] = msg->position[i] ;
+                }
+            }
+        }
+    }
+
+    void timer_callback()
+    {
+        auto message = JointCommand();
+        message.mode = 1 ;
+        message.names = std::vector<std::string>(7);
+        message.command = std::vector<double>(7);
+        for(auto i(0); i<7; i++)
+        {
+            auto suffixe = suffixes[i];
+            message.names[i] = "left"+suffixe;
+            message.command[i] = (suffixe == "_s1" || suffixe == "_e1" || suffixe == "_w1") ? left_position[i] : -left_position[i];
+        }
+        print_JointCommand(message);
+        publisher_->publish(message);
+    }
+
+    void print_JointCommand(JointCommand message)
+    {
+        std::cout << "---------------------------------------------------------------------------------" << std::endl ;
+        std::cout << "Sending..." << std::endl ;
+        std::cout << "Control mode : " << message.mode << std::endl;
+        int joint_number = message.names.size();
+        for(int i(0); i<joint_number;i++)
+        {
+            std::cout << message.names[i] << " joint is set to : " << message.command[i] << std::endl ;
+        }
+    }
+
+    // declare any subscriber / publisher / timer
+    rclcpp::Subscription<JointState>::SharedPtr subscription_;
+    rclcpp::Publisher<JointCommand>::SharedPtr publisher_;
+    rclcpp::TimerBase::SharedPtr timer_;
 };
 
 }
